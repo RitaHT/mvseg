@@ -16,11 +16,13 @@ import torchvision.transforms as trans
 m2 = timm.create_model(
     'mobilevitv2_050.cvnets_in1k', 
     features_only=True, 
-    pretrained=True)
+    pretrained=True,
+    num_classes=0, #remove classifier 
+    in_chans = 3)
 
 # get model specific transforms (normalization, resize)
 data_config = timm.data.resolve_model_data_config(m2)
-transforms = timm.data.create_transform(**data_config, is_training=False)
+transforms = timm.data.create_transform(**data_config, is_training=True)
 
 # torchvision transforms module takes PIL image with 3 channels, need to add lines
 pil_image = trans.ToPILImage()(slice_T2)
