@@ -25,8 +25,8 @@ data_config = timm.data.resolve_model_data_config(m2)
 transforms = timm.data.create_transform(**data_config, is_training=True)
 
 # torchvision transforms module takes PIL image with 3 channels, need to add lines
-pil_image = trans.ToPILImage()(slice_T2)
-x = transforms(pil_image).unsqueeze(0) #torch.Size([1, 3, 256, 256])
-print("x.shape = {}".format(x.shape))
-output = m2(x) #list with len=5 tensors
+#pil_image = trans.ToPILImage()(slice_T2)
+#x = transforms(pil_image).unsqueeze(0) #torch.Size([1, 3, 256, 256])
+#print("x.shape = {}".format(x.shape))
+#output = m2(x) #list with len=5 tensors
 
