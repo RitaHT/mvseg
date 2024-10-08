@@ -75,6 +75,7 @@ parser.add_argument('--a_min_pet', default=0, type=float, help='a_min in ScaleIn
 parser.add_argument('--a_max_pet', default=10000, type=float, help='a_max in ScaleIntensityRanged')
 parser.add_argument('--b_min', default=0.0, type=float, help='b_min in ScaleIntensityRanged')
 parser.add_argument('--b_max', default=1.0, type=float, help='b_max in ScaleIntensityRanged')
+parser.add_argument('--RandShiftIntensityd_prob', default=0.1, type=float, help='RandShiftIntensityd aug probability')
 parser.add_argument('--in_channels', default=1, type=int, help='number of input channels')
 parser.add_argument('--out_channels', default=1 + 2, type=int, help='number of output channels') #0: background, 1: cancer, 2: lymph node #HECKTOR
 parser.add_argument('--batch_size', default=4, type=int, help='number of batch size')
@@ -82,8 +83,8 @@ parser.add_argument('--max_epochs', default=50, type=int, help='max number of tr
 parser.add_argument('--modality', default='PET', type=str, help='modality (PET or CT)')
 parser.add_argument('--k_folds', default=5, type=int, help='folds for cross validation')
 parser.add_argument('--test_size', default=0.25, type=float, help='train/test split ratio') #0.2
-parser.add_argument('--cache_rate', default=0.1, type=float, help='CacheDataset cache_rate') #0.2
-parser.add_argument('--cache_num', default=10, type=int, help='CacheDataset cache_num') #10
+parser.add_argument('--cache_rate', default=0.2, type=float, help='CacheDataset cache_rate') #0.2
+parser.add_argument('--cache_num', default=20, type=int, help='CacheDataset cache_num') #10
 
 
 """ Functions:"""
@@ -92,9 +93,10 @@ def validation(model, loader, dice_metric, post_pred, post_label):
         mean_dice = 0.0
         i = 0
         for val_data in loader:
-            if i % 10 == 0:
-                print("batch ", i, flush=True)
             i += 1
+            if i % 50 == 1:
+                print("batch ", i, flush=True)
+            
 
             val_inputs, val_labels = val_data["image"].to(device), val_data["label"].to(device)
             if val_inputs.shape != val_labels.shape:
@@ -342,9 +344,10 @@ def main_worker(gpu, args):
             EnsureChannelFirstd(keys=["image", "label"]),
             Orientationd(keys=["image", "label"], axcodes="RAS"),
             #if use preprocessed: ignore scaleintensity?
-            # ScaleIntensityRanged(keys=["image"], 
-            #                      a_min=args.a_min, a_max=args.a_max, 
-            #                      b_min=args.b_min, b_max=args.b_max, clip=True),
+            #SMIT: [-750,1750] same for both modality?????
+            ScaleIntensityRanged(keys=["image"], 
+                                 a_min=args.a_min, a_max=args.a_max, 
+                                 b_min=args.b_min, b_max=args.b_max, clip=True),
             Spacingd(keys=["image", "label"], 
                      pixdim=(args.space_x, args.space_y, args.space_z), 
                      mode=("bilinear", "nearest"), ),
@@ -380,7 +383,7 @@ def main_worker(gpu, args):
             # RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2), #when using 3D UNet
             # Rand2DElasticd(keys=["image", "label"], prob=0.5, spacing=(20, 20), magnitude_range=(1, 1)),
             # this may cause too much change for PET?
-            RandShiftIntensityd(keys=["image"], prob=0.5, offsets=(0.1, 0.2)),
+            RandShiftIntensityd(keys=["image"], prob=args.RandShiftIntensityd_prob, factors=0.2),
             ToTensord(keys=["image", "label"]),
         ])
 
@@ -389,9 +392,9 @@ def main_worker(gpu, args):
             EnsureChannelFirstd(keys=["image", "label"]),
             Orientationd(keys=["image", "label"], axcodes="RAS"),
             #if use preprocessed: ignore scaleintensity?
-            # ScaleIntensityRanged(keys=["image"], 
-            #                      a_min=args.a_min, a_max=args.a_max, 
-            #                      b_min=args.b_min, b_max=args.b_max, clip=True),
+            ScaleIntensityRanged(keys=["image"], 
+                                 a_min=args.a_min, a_max=args.a_max, 
+                                 b_min=args.b_min, b_max=args.b_max, clip=True),
             Spacingd(keys=["image", "label"], 
                      pixdim=(args.space_x, args.space_y, args.space_z), 
                      mode=("bilinear", "nearest"), ),
@@ -561,7 +564,7 @@ def main_worker(gpu, args):
                 # loss=0 
                 # epoch_loss += loss
 
-                if idx % 10==1:
+                if idx % 50==1:
                     batch_end_time = time.time() #debug: Rita
                     print('Epoch {}/{} batch {}/{}'.format(epoch+1, args.max_epochs, idx, len(train_loader)),
                         'loss: {:.4f}'.format(loss.item()),
@@ -574,7 +577,7 @@ def main_worker(gpu, args):
             end_time_epoch_training = time.time()
             print(f"Epoch Training time: {end_time_epoch_training - start_time_epoch:2.5f} seconds", flush=True) 
             
-            if epoch % 2 == 0:
+            if epoch % 5 == 0:
                 torch.save(model.state_dict(), os.path.join(model_dir, f"fold_{fold}_epoch_{epoch}.pth"))
                 print("Epoch checkpoint saved", flush=True)
 
@@ -586,8 +589,8 @@ def main_worker(gpu, args):
             mean_train_dice = validation(model, train_loader, dice_metric, post_pred, post_label)
             train_dices.append(mean_train_dice)
             val_dices.append(mean_val_dice)
-            end_time_epoch_val = time.time()
-            print(f"Epoch Val time: {end_time_epoch_val - end_time_epoch_training:2.5f} seconds", flush=True) 
+            # end_time_epoch_val = time.time()
+            # print(f"Epoch Val time: {end_time_epoch_val - end_time_epoch_training:2.5f} seconds", flush=True) 
 
             # Save best model for this fold
             if mean_val_dice > best_metric:
@@ -596,7 +599,7 @@ def main_worker(gpu, args):
                 #should i save scalers? #go back to check mobilevit
                 torch.save(model.state_dict(), os.path.join(model_dir, f"best_model_fold_{fold}.pth"))
             
-            if epoch % 2 == 0:
+            if epoch % 5 == 0:
                 model.eval()
                 export_ex_seg_train_val(model, f"{model_name}_fold{fold}", graph_dir, 
                                         train_loader, val_loader, epoch,
