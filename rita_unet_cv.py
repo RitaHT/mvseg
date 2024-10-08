@@ -66,9 +66,9 @@ parser.add_argument('--dist-backend', default='nccl', type=str, help='distribute
 parser.add_argument('--space_x', default=1.5, type=float, help='spacing in x direction')
 parser.add_argument('--space_y', default=1.5, type=float, help='spacing in y direction')
 parser.add_argument('--space_z', default=1.5, type=float, help='spacing in z direction')
-parser.add_argument('--roi_x', default=64, type=int, help='roi size in x direction') #128*128*128
-parser.add_argument('--roi_y', default=64, type=int, help='roi size in y direction')
-parser.add_argument('--roi_z', default=64, type=int, help='roi size in z direction')
+parser.add_argument('--roi_x', default=128, type=int, help='roi size in x direction') #128*128*128
+parser.add_argument('--roi_y', default=128, type=int, help='roi size in y direction') #64,64,64
+parser.add_argument('--roi_z', default=128, type=int, help='roi size in z direction')
 parser.add_argument('--a_min_ct', default=-750, type=float, help='a_min in ScaleIntensityRanged')
 parser.add_argument('--a_max_ct', default=1000, type=float, help='a_max in ScaleIntensityRanged')
 parser.add_argument('--a_min_pet', default=0, type=float, help='a_min in ScaleIntensityRanged')
@@ -78,12 +78,12 @@ parser.add_argument('--b_max', default=1.0, type=float, help='b_max in ScaleInte
 parser.add_argument('--in_channels', default=1, type=int, help='number of input channels')
 parser.add_argument('--out_channels', default=1 + 2, type=int, help='number of output channels') #0: background, 1: cancer, 2: lymph node #HECKTOR
 parser.add_argument('--batch_size', default=4, type=int, help='number of batch size')
-parser.add_argument('--max_epochs', default=10, type=int, help='max number of training epochs') #1 #50
-parser.add_argument('--modality', default='CT', type=str, help='modality (PET or CT)')
+parser.add_argument('--max_epochs', default=50, type=int, help='max number of training epochs') #1 #50
+parser.add_argument('--modality', default='PET', type=str, help='modality (PET or CT)')
 parser.add_argument('--k_folds', default=5, type=int, help='folds for cross validation')
-parser.add_argument('--test_size', default=0.9, type=float, help='train/test split ratio') #0.2
+parser.add_argument('--test_size', default=0.25, type=float, help='train/test split ratio') #0.2
 parser.add_argument('--cache_rate', default=0.1, type=float, help='CacheDataset cache_rate') #0.2
-parser.add_argument('--cache_num', default=4, type=int, help='CacheDataset cache_num') #10
+parser.add_argument('--cache_num', default=10, type=int, help='CacheDataset cache_num') #10
 
 
 """ Functions:"""
@@ -120,9 +120,9 @@ def validation(model, loader, dice_metric, post_pred, post_label):
     dice_metric.reset()
     return mean_dice
 
-def export_ex_seg(batch_data, model_name, graph_dir, 
+def export_ex_seg(model, batch_data, model_name, graph_dir, 
                   dice_metric, post_pred, post_label, 
-                  i = 0, slice_num = 64,val=True):
+                  i = 0, slice_num = 63,val=True):
     # model.eval()
     with torch.no_grad():
         inputs, labels = (batch_data["image"].to(device), batch_data["label"].to(device)) #
@@ -209,7 +209,7 @@ def export_ex_seg(batch_data, model_name, graph_dir,
     return example_dice
 
 
-def export_ex_seg_train_val(model_name, graph_dir, 
+def export_ex_seg_train_val(model, model_name, graph_dir, 
                             train_loader, val_loader, epoch,
                             dice_metric, post_pred, post_label,
                             train_i_stop = 0, val_i_stop = 6, i = 0, slice_num = 64):
@@ -219,7 +219,7 @@ def export_ex_seg_train_val(model_name, graph_dir,
         train_i += 1
         if train_i == train_i_stop: #change if needed
             break
-    export_ex_seg(batch_data, f"{model_name}_epoch{epoch}", graph_dir, dice_metric, post_pred, post_label, val=False)
+    export_ex_seg(model, batch_data, f"{model_name}_epoch{epoch}", graph_dir, dice_metric, post_pred, post_label, slice_num=slice_num, val=False)
     
     print(f"Exporting eximage on Validation Set", flush=True)
     val_i = 0
@@ -227,7 +227,7 @@ def export_ex_seg_train_val(model_name, graph_dir,
         val_i += 1
         if val_i == val_i_stop: #change if needed#ProstateX-0169-Finding1_slices_0
             break
-    export_ex_seg(batch_data, f"{model_name}_epoch{epoch}", graph_dir, dice_metric, post_pred, post_label, val=True)
+    export_ex_seg(model, batch_data, f"{model_name}_epoch{epoch}", graph_dir, dice_metric, post_pred, post_label, slice_num=slice_num, val=True)
 
 
 def export_ex(val_data_example, modality, num_slice=12, val=True):        
@@ -297,7 +297,7 @@ def main_worker(gpu, args):
 
     # Defining model name
     cwd = os.getcwd() #/data/deasy/shiqin_data/intern24/
-    model_folder = "model_1002"
+    model_folder = "model_1007"
     model_name = f"{args.modality}_unet"
     model_dir = os.path.join(cwd, f"{model_folder}/{model_name}") #
     graph_dir = os.path.join(model_dir, "graphs")
@@ -312,12 +312,12 @@ def main_worker(gpu, args):
         os.makedirs(graph_dir, exist_ok=True)
         print(f"Create new folder {model_dir}")
         print(f"Create new folder {graph_dir}")
-    bestval_save_dir = os.path.join(model_dir, "model_bestval.pth")
+    # bestval_save_dir = os.path.join(model_dir, "model_bestval.pth")
     print(f"model_dir: {model_dir}", flush=True)
 
     # Load data using the MONAI's decathlon format reader, specifically for Hecktor dataset (ct, pet, label)
     file_dir = './'
-    json_file =  f"{file_dir}/train_json_{args.modality}.json" #ex_data_CT.json
+    json_file =  f"{file_dir}/train_json_{args.modality}_preprocessed.json" #ex_data_CT.json
     datalist = load_decathlon_datalist(json_file, is_segmentation=True, 
                                     data_list_key="all_data", base_dir="./")
     print("length of datalist: ", len(datalist), flush=True)
@@ -341,22 +341,23 @@ def main_worker(gpu, args):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             Orientationd(keys=["image", "label"], axcodes="RAS"),
-            ScaleIntensityRanged(keys=["image"], 
-                                 a_min=args.a_min, a_max=args.a_max, 
-                                 b_min=args.b_min, b_max=args.b_max, clip=True),
+            #if use preprocessed: ignore scaleintensity?
+            # ScaleIntensityRanged(keys=["image"], 
+            #                      a_min=args.a_min, a_max=args.a_max, 
+            #                      b_min=args.b_min, b_max=args.b_max, clip=True),
             Spacingd(keys=["image", "label"], 
                      pixdim=(args.space_x, args.space_y, args.space_z), 
                      mode=("bilinear", "nearest"), ),
             CropForegroundd(keys=["image", "label"], 
                             source_key="label", 
                             allow_smaller=True, #if false, will pad automatically?
-                            margin=(50,50,30)), #hardcoded
+                            margin=(30,30,30)), #hardcoded
             SpatialPadd(keys=["image", "label"], 
                         spatial_size=(args.roi_x, args.roi_y, args.roi_z)),
             # this works fine
             # CenterSpatialCropd(keys=["image", "label"], 
             #                    roi_size=(args.roi_x, args.roi_y, args.roi_z)),
-            #try this?
+            #try this? seem to work
             RandSpatialCropd(keys=["image", "label"], 
                     roi_size=(args.roi_x, args.roi_y, args.roi_z),
                     random_size=False),
@@ -378,6 +379,7 @@ def main_worker(gpu, args):
             RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
             # RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2), #when using 3D UNet
             # Rand2DElasticd(keys=["image", "label"], prob=0.5, spacing=(20, 20), magnitude_range=(1, 1)),
+            # this may cause too much change for PET?
             RandShiftIntensityd(keys=["image"], prob=0.5, offsets=(0.1, 0.2)),
             ToTensord(keys=["image", "label"]),
         ])
@@ -386,16 +388,17 @@ def main_worker(gpu, args):
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
             Orientationd(keys=["image", "label"], axcodes="RAS"),
-            ScaleIntensityRanged(keys=["image"], 
-                                 a_min=args.a_min, a_max=args.a_max, 
-                                 b_min=args.b_min, b_max=args.b_max, clip=True),
+            #if use preprocessed: ignore scaleintensity?
+            # ScaleIntensityRanged(keys=["image"], 
+            #                      a_min=args.a_min, a_max=args.a_max, 
+            #                      b_min=args.b_min, b_max=args.b_max, clip=True),
             Spacingd(keys=["image", "label"], 
                      pixdim=(args.space_x, args.space_y, args.space_z), 
                      mode=("bilinear", "nearest"), ),
             CropForegroundd(keys=["image", "label"], 
                             source_key="label", 
                             allow_smaller=False, #if false, will pad automatically?
-                            margin=(50,50,30)), #hardcoded
+                            margin=(30,30,30)), #hardcoded
             SpatialPadd(keys=["image", "label"], 
                         spatial_size=(args.roi_x, args.roi_y, args.roi_z)), 
             CenterSpatialCropd(keys=["image", "label"],  #ensure the same size for all images
@@ -513,6 +516,12 @@ def main_worker(gpu, args):
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         scaler = torch.cuda.amp.GradScaler()
 
+        #what if resume training?
+        bestval_save_dir = os.path.join(model_dir, F"best_model_fold_{fold}.pth")
+        if os.path.exists(bestval_save_dir):
+            model.load_state_dict(torch.load(bestval_save_dir))
+            print(f"Loaded model from {bestval_save_dir}", flush=True)
+
         # Training and Validation for each fold
         print(time.ctime(), flush=True)
         print("Training...", flush=True)
@@ -525,14 +534,15 @@ def main_worker(gpu, args):
             model.train()
             epoch_loss = 0
             idx = 0
+            start_time_epoch = time.time()
             for batch_data in train_loader:
                 optimizer.zero_grad()
-                #debug
-                if epoch==0 and idx == 0: #%5
-                    print("loading batch ", idx, flush=True)
-                idx += 1
-
                 inputs, labels = batch_data["image"].to(device), batch_data["label"].to(device)
+                #debug: check if loading problem or model problem
+                idx += 1
+                if idx == 1: #%5
+                    print("loading batch ", idx, flush=True)
+                
                 #debug
                 if (inputs.shape != (args.batch_size, args.in_channels, args.roi_x, args.roi_y, args.roi_z)) or (labels.shape != inputs.shape):
                     print(f"inputs shape: {inputs.shape}", flush=True)
@@ -551,19 +561,22 @@ def main_worker(gpu, args):
                 # loss=0 
                 # epoch_loss += loss
 
-                if args.rank == 0 and idx % 10==0:
-                    epoch_end_time = time.time() #debug: Rita
-                    print ('its here')
+                if idx % 10==1:
+                    batch_end_time = time.time() #debug: Rita
                     print('Epoch {}/{} batch {}/{}'.format(epoch+1, args.max_epochs, idx, len(train_loader)),
                         'loss: {:.4f}'.format(loss.item()),
-                        'time {:.2f}s'.format(epoch_end_time - start_time))
+                        'time {:.2f}s'.format(batch_end_time - start_time_epoch), flush=True)
 
 
             epoch_loss /= len(train_loader)
             epoch_loss_values.append(epoch_loss) #debug
 
             end_time_epoch_training = time.time()
-            print(f"Epoch Training time: {end_time_epoch_training - end_time_data:2.5f} seconds", flush=True) 
+            print(f"Epoch Training time: {end_time_epoch_training - start_time_epoch:2.5f} seconds", flush=True) 
+            
+            if epoch % 2 == 0:
+                torch.save(model.state_dict(), os.path.join(model_dir, f"fold_{fold}_epoch_{epoch}.pth"))
+                print("Epoch checkpoint saved", flush=True)
 
             # Validation
             model.eval()
@@ -580,13 +593,28 @@ def main_worker(gpu, args):
             if mean_val_dice > best_metric:
                 best_metric = mean_val_dice
                 best_epoch = epoch
+                #should i save scalers? #go back to check mobilevit
                 torch.save(model.state_dict(), os.path.join(model_dir, f"best_model_fold_{fold}.pth"))
+            
+            if epoch % 2 == 0:
+                model.eval()
+                export_ex_seg_train_val(model, f"{model_name}_fold{fold}", graph_dir, 
+                                        train_loader, val_loader, epoch,
+                                        dice_metric, post_pred, post_label,
+                                        train_i_stop = 0, val_i_stop = 0, 
+                                        i = 0, slice_num = args.roi_x//2)
+
 
             end_time_epoch = time.time()
             print(f"Epoch Total time: {end_time_epoch - start_time_epoch:2.5f} seconds", flush=True) 
             print(f"Epoch {epoch+1}/{args.max_epochs} - Fold {fold+1}/{args.k_folds}: Train Loss {epoch_loss:.4f}, Train Dice {mean_train_dice:.4f}, Val Dice {mean_val_dice:.4f}", flush=True)
 
-        print(f"Best validation dice score for fold {fold+1}: {best_metric:.4f} at epoch {best_epoch}", flush=True)
+
+        # Save last model for this fold
+        #checkpoint?
+        torch.save(model.state_dict(), os.path.join(model_dir, f"last_model_fold_{fold}.pth"))
+
+        print(f"Best validation dice score for fold {fold}: {best_metric:.4f} at epoch {best_epoch}", flush=True)
 
 
 
@@ -607,7 +635,7 @@ def main_worker(gpu, args):
         # Plot Train Loss
         plt.subplot(1, 2, 1)
         plt.plot(epochs_range, epoch_loss_values, label='Train Loss')
-        plt.title(f'Train Loss for Fold {fold+1}')
+        plt.title(f'Train Loss for Fold {fold}/{args.k_folds}')
         plt.xlabel('Epochs')
         plt.ylabel('Loss')
         plt.legend()
@@ -616,19 +644,19 @@ def main_worker(gpu, args):
         plt.subplot(1, 2, 2)
         plt.plot(epochs_range, train_dices, label='Train Dice')
         plt.plot(epochs_range, val_dices, label='Val Dice')
-        plt.title(f'Dice Scores for Fold {fold+1}')
+        plt.title(f'Dice Scores for Fold {fold}/{args.k_folds}')
         plt.xlabel('Epochs')
         plt.ylabel('Dice Score')
         plt.ylim(0, 1)
         plt.legend()
         
         plt.tight_layout()
-        plt.suptitle(f"Result from {fold+1}/{args.k_folds} folds")
-        plt.savefig(f'{model_dir}/train_val_loss_{model_name}_fold{fold+1}.png')
+        plt.suptitle(f"Result from {fold}/{args.k_folds} folds")
+        plt.savefig(f'{model_dir}/train_val_loss_{model_name}_fold{fold}.png')
 
         # Save eximage
         model.eval()
-        export_ex_seg_train_val(f"{model_name}_fold_{fold+1}", graph_dir, 
+        export_ex_seg_train_val(model, f"{model_name}_fold_{fold}", graph_dir, 
                                 train_loader, val_loader, epoch,
                                 dice_metric, post_pred, post_label,
                                 train_i_stop = 0, val_i_stop = 0, 
